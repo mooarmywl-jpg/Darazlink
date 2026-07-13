@@ -23,7 +23,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 user_id         INTEGER PRIMARY KEY,
                 username        TEXT,
-                credit_balance  INTEGER NOT NULL DEFAULT 0,
+                credit_balance  REAL NOT NULL DEFAULT 0,
                 total_clicks    INTEGER NOT NULL DEFAULT 0,
                 referred_by     INTEGER,
                 total_referrals INTEGER NOT NULL DEFAULT 0,
@@ -79,13 +79,101 @@ def get_conn():
         conn.close()
 
 
+def get_all_user_ids():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id FROM users").fetchall()
+        return [r["user_id"] for r in rows]
+
+
+def get_stats():
+    with get_conn() as conn:
+        total_users = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+        total_credits = conn.execute(
+            "SELECT COALESCE(SUM(credit_balance), 0) s FROM users"
+        ).fetchone()["s"]
+        active_links = conn.execute(
+            "SELECT COUNT(*) c FROM links WHERE status = 'active'"
+        ).fetchone()["c"]
+        done_links = conn.execute(
+            "SELECT COUNT(*) c FROM links WHERE status = 'done'"
+        ).fetchone()["c"]
+        total_clicks = conn.execute("SELECT COUNT(*) c FROM clicks").fetchone()["c"]
+        total_referrals = conn.execute(
+            "SELECT COALESCE(SUM(total_referrals), 0) s FROM users"
+        ).fetchone()["s"]
+        return {
+            "total_users": total_users,
+            "total_credits": total_credits,
+            "active_links": active_links,
+            "done_links": done_links,
+            "total_clicks": total_clicks,
+            "total_referrals": total_referrals,
+        }
+
+
+def get_all_user_ids():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id FROM users").fetchall()
+        return [r["user_id"] for r in rows]
+
+
+def get_admin_stats():
+    with get_conn() as conn:
+        total_users = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+        total_links = conn.execute("SELECT COUNT(*) c FROM links").fetchone()["c"]
+        active_links = conn.execute(
+            "SELECT COUNT(*) c FROM links WHERE status = 'active'"
+        ).fetchone()["c"]
+        done_links = conn.execute(
+            "SELECT COUNT(*) c FROM links WHERE status = 'done'"
+        ).fetchone()["c"]
+        total_credits = conn.execute(
+            "SELECT COALESCE(SUM(credit_balance), 0) c FROM users"
+        ).fetchone()["c"]
+        total_clicks = conn.execute(
+            "SELECT COALESCE(SUM(total_clicks), 0) c FROM users"
+        ).fetchone()["c"]
+        total_referrals = conn.execute(
+            "SELECT COALESCE(SUM(total_referrals), 0) c FROM users"
+        ).fetchone()["c"]
+        return {
+            "total_users": total_users,
+            "total_links": total_links,
+            "active_links": active_links,
+            "done_links": done_links,
+            "total_credits": total_credits,
+            "total_clicks": total_clicks,
+            "total_referrals": total_referrals,
+        }
+
+
+def get_top_users_by_credit(limit: int = 5):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, username, credit_balance FROM users "
+            "ORDER BY credit_balance DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_top_referrers(limit: int = 5):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, username, total_referrals FROM users "
+            "WHERE total_referrals > 0 ORDER BY total_referrals DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def user_exists(user_id: int) -> bool:
     with get_conn() as conn:
         row = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
         return row is not None
 
 
-def set_referral(new_user_id: int, referrer_id: int, bonus: int = 5):
+def set_referral(new_user_id: int, referrer_id: int, bonus: float = 2):
     """
     Link new_user_id as having been referred by referrer_id, and reward
     the referrer with `bonus` credits. Only call this once, right when the
@@ -128,18 +216,18 @@ def get_user(user_id: int):
         return dict(row) if row else None
 
 
-def add_credit(user_id: int, amount: int = 1):
+def add_credit(user_id: int, amount: float = 1):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE users SET credit_balance = credit_balance + ? WHERE user_id = ?",
+            "UPDATE users SET credit_balance = ROUND(credit_balance + ?, 2) WHERE user_id = ?",
             (amount, user_id),
         )
 
 
-def deduct_credit(user_id: int, amount: int = 1):
+def deduct_credit(user_id: int, amount: float = 1):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE users SET credit_balance = credit_balance - ? WHERE user_id = ?",
+            "UPDATE users SET credit_balance = ROUND(credit_balance - ?, 2) WHERE user_id = ?",
             (amount, user_id),
         )
 
